@@ -1,80 +1,115 @@
-from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
-from sheets_auth import register_user, login_user
-from yandex_api import yandex_geocode, yandex_tts
-from storage import save_project, load_project, save_model
+# app.py
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, send_from_directory
+from auth import register_user, verify_user
+from storage import save_model, save_preview, save_public_project, load_public_projects, init_storage
 import os
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/models'
+app.secret_key = 't-studio-secret-2025'
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def home():
+    if 'user' in session:
+        return redirect(url_for('profile'))
+    return redirect(url_for('login'))
 
-@app.route('/api/register', methods=['POST'])
-def api_register():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    register_user(username, password)
-    return jsonify({"success": True})
-
-@app.route('/api/login', methods=['POST'])
-def api_login():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    if login_user(username, password):
-        return jsonify({"success": True})
-    return jsonify({"success": False}), 401
-
-@app.route('/api/project', methods=['GET', 'POST'])
-def api_project():
+@app.route('/login', methods=['GET', 'POST'])
+def login():
     if request.method == 'POST':
-        data = request.json
-        user_id = data.get('user_id')
-        save_project(user_id, data.get('project'))
-        return jsonify({"success": True})
+        username = request.form['username']
+        password = request.form['password']
+        if verify_user(username, password):
+            session['user'] = username
+            return redirect(url_for('profile'))
+        return render_template('login.html', error="Неверный логин или пароль")
+    return render_template('login.html')
 
-    elif request.method == 'GET':
-        user_id = request.args.get('user_id')
-        project = load_project(user_id)
-        return jsonify(project or {})
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        if register_user(username, password):
+            session['user'] = username
+            return redirect(url_for('profile'))
+        return render_template('register.html', error="Пользователь уже существует")
+    return render_template('register.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('login'))
+
+@app.route('/editor')
+def editor():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    return render_template('index.html', username=session['user'])
+
+@app.route('/profile')
+def profile():
+    if 'user' not in session:
+        return redirect(url_for('login'))
+    projects = load_public_projects()
+    user_projects = [p for p in projects if p.get('author') == session['user']]
+    return render_template('profile.html', username=session['user'], projects=user_projects, all_projects=projects)
+
+@app.route('/project/<int:pid>')
+def project_view(pid):
+    projects = load_public_projects()
+    if pid < len(projects):
+        proj = projects[pid]
+        return render_template('project_view.html', project=proj, pid=pid)
+    return "Проект не найден", 404
+
+# --- API ---
 
 @app.route('/api/upload_model', methods=['POST'])
 def api_upload_model():
     if 'file' not in request.files:
-        return jsonify({"error": "No file"}), 400
+        return jsonify({"error": "Нет файла"}), 400
     file = request.files['file']
-    filename = file.filename
-    save_model(file, filename)
-    return jsonify({"url": f"/static/models/{filename}"})
+    url = save_model(file)
+    return jsonify({"url": url})
 
-@app.route('/api/yandex/geocode', methods=['POST'])
-def api_yandex_geocode():
-    data = request.json
-    address = data.get('address')
-    result = yandex_geocode(address)
-    return jsonify(result)
+@app.route('/api/publish', methods=['POST'])
+def api_publish():
+    if 'user' not in session:
+        return jsonify({"error": "Не авторизован"}), 401
 
-@app.route('/api/yandex/tts', methods=['POST'])
-def api_yandex_tts():
-    data = request.json
-    text = data.get('text')
-    audio = yandex_tts(text)
-    return send_file(audio, mimetype='audio/mpeg')
+    title = request.form.get('title', 'Без названия')
+    description = request.form.get('description', '')
+    html_file = request.files.get('html_file')
+    preview = request.files.get('preview')
 
-@app.route('/api/export_exe', methods=['POST'])
-def api_export_exe():
-    # В реальности это требует PyInstaller и сложной логики
-    # Здесь просто заглушка
-    return jsonify({"message": "EXE generation started. Check your email."})
+    html_url = ''
+    preview_url = '/static/default-preview.png'
 
-@app.route('/static/models/<path:filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+    if html_file:
+        html_url = f"/uploads/{session['user']}_{secure_filename(html_file.filename)}"
+        os.makedirs('static/uploads', exist_ok=True)
+        html_file.save(f"static/{html_url}")
+
+    if preview:
+        preview_url = save_preview(preview)
+
+    project_data = {
+        'author': session['user'],
+        'title': title,
+        'description': description,
+        'html_url': html_url,
+        'preview_url': preview_url,
+        'likes': 0
+    }
+
+    save_public_project(project_data)
+    return jsonify({"success": True, "message": "Проект опубликован!"})
+
+@app.route('/uploads/<path:filename>')
+def custom_uploads(filename):
+    return send_from_directory('static/uploads', filename)
 
 if __name__ == '__main__':
-    os.makedirs('static/models', exist_ok=True)
-    os.makedirs('projects', exist_ok=True)
-    app.run(debug=True)
+    init_storage()
+    os.makedirs('static/uploads', exist_ok=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
