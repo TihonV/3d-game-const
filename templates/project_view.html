@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><title>{{ project.title }} — T-studio</title></head>
+<body>
+    <h1>{{ project.title }}</h1>
+    <p>Автор: {{ project.author }}</p>
+    <img src="{{ project.preview_url }}" width="400"><br><br>
+    <p>{{ project.description }}</p>
+    {% if project.html_url %}
+        <a href="{{ project.html_url }}" target="_blank">Играть онлайн</a>
+    {% endif %}
+    <p><a href="/profile">← Назад</a></p>
+</body>
+</html>
