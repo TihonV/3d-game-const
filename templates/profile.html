@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Моя страница — T-studio</title></head>
+<body style="background:#f0f0f0; font-family:Arial; padding:20px;">
+    <h1>Привет, {{ username }}!</h1>
+    <p><a href="/editor">Открыть конструктор</a> | <a href="/logout">Выйти</a></p>
+
+    <h2>Мои работы ({{ projects|length }})</h2>
+    {% for p in projects %}
+        <div style="border:1px solid #ccc; padding:10px; margin:10px; display:inline-block; width:200px;">
+            <img src="{{ p.preview_url }}" width="180">
+            <h3>{{ p.title }}</h3>
+            <p>{{ p.description[:50] }}...</p>
+            <a href="/project/{{ loop.index0 }}">Открыть</a>
+        </div>
+    {% else %}
+        <p>Вы ещё не публиковали работы.</p>
+    {% endfor %}
+
+    <h2>Все работы сообщества</h2>
+    {% for p in all_projects %}
+        <div style="border:1px solid #ddd; padding:10px; margin:10px;">
+            <strong>{{ p.author }}</strong> — {{ p.title }}
+            <a href="/project/{{ loop.index0 }}">Просмотр</a>
+        </div>
+    {% endfor %}
+</body>
+</html>
