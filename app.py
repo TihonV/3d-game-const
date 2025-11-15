@@ -1,11 +1,16 @@
 # app.py
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, send_from_directory
+from flask import Flask, request, jsonify, render_template, redirect, session, url_for, send_from_directory
+from flask_cors import CORS  # <-- Добавляем CORS
 from auth import register_user, verify_user
 from storage import save_model, save_preview, save_public_project, load_public_projects, init_storage
 import os
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = 't-studio-secret-2025'
+
+# --- Включаем CORS для всех доменов ---
+CORS(app, origins=["http://localhost:5500", "https://your-github-username.github.io", "http://127.0.0.1:5000"])
 
 @app.route('/')
 def home():
@@ -40,12 +45,6 @@ def logout():
     session.pop('user', None)
     return redirect(url_for('login'))
 
-@app.route('/editor')
-def editor():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-    return render_template('index.html', username=session['user'])
-
 @app.route('/profile')
 def profile():
     if 'user' not in session:
@@ -62,7 +61,7 @@ def project_view(pid):
         return render_template('project_view.html', project=proj, pid=pid)
     return "Проект не найден", 404
 
-# --- API ---
+# --- API для конструктора ---
 
 @app.route('/api/upload_model', methods=['POST'])
 def api_upload_model():
